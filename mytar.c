@@ -68,8 +68,12 @@ void parse_args(int argc, char **argv, bool *files_listed, char **archive_filena
                 exit_with_error("Option -f requires an argument");
             }
         } else {
-            *filenames_start = i;
-            break;
+            if (i == 1) {
+                exit_with_error("Unknown option: %s", *(argv + i));
+            } else {
+                *filenames_start = i;
+                break;
+            }
         }
         ++i;
     }
@@ -126,7 +130,7 @@ void list_files(FILE *archive, int argc, char **argv, int filenames_start, char 
 
     if (continuous_zero_blocks == 1) {
         // exit_with_error("A lone zero block at %ld", ftell(archive) / BLOCK_SIZE);
-        errx(0, "A lone zero block at %ld", ftell(archive) / BLOCK_SIZE);
+        warnx("A lone zero block at %ld", ftell(archive) / BLOCK_SIZE);
     }
 
     if (filenames_start < argc) {
@@ -166,6 +170,6 @@ int main(int argc, char **argv) {
     }
 
     list_files(archive, argc, argv, filenames_start, found_files);
-    
+
     fclose(archive);
 }
