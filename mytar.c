@@ -6,15 +6,33 @@
 #include <err.h>
 #include <stdarg.h>
 
-#define    BLOCK_SIZE    512
+#define	BLOCK_SIZE    512
 
-#define VERBOSE "-v"
-#define LIST "-t"
-#define EXTRACT "-x"
-#define FILENAME "-f"
+#define	VERBOSE "-v"
+#define	LIST "-t"
+#define	EXTRACT "-x"
+#define	FILENAME "-f"
 
-#define F_MISSING_ARG "Option -f requires an argument"
-#define NOT_TAR_FILE "This does not look like a tar archive"
+typedef enum ErrorType {
+	ERR_NONE,
+	ERR_USAGE,
+	ERR_UNKNOWN_OPTION,
+	ERR_OPTION_F_REQUIRES_ARG,
+	ERR_UNSUPPORTED_HEADER_TYPE,
+	ERR_CANNOT_CREATE_FILE,
+	ERR_UNEXPECTED_EOF,
+	ERR_NOT_RECOVERABLE,
+	ERR_CANNOT_OPEN_ARCHIVE,
+	ERR_FILE_NOT_FOUND,
+	ERR_FAILURE_STATUS,
+	ERR_NOT_TAR_ARCHIVE
+} ErrorType;
+
+typedef enum WarningType {
+	WARN_NONE,
+	WARN_LONE_ZERO_BLOCK,
+	WARN_NOT_FOUND_IN_ARCHIVE
+} WarningType;
 
 typedef struct posix_header {
 	char name[100];
@@ -65,19 +83,97 @@ bool is_zero_block(const char *block) {
 	return (true);
 }
 
-void print_error_and_exit(const char *format, ...) {
+// print with flush , immediate print
+void immediate_print(const char *format, ...) {
 	va_list args;
 	va_start(args, format);
-	vwarnx(format, args);
+	vfprintf(stdout, format, args);
+	fflush(stdout);
+	va_end(args);
+}
+
+
+void handle_error(ErrorType error_type, ...) {
+	va_list args;
+	va_start(args, error_type);
+
+	switch (error_type) {
+		case ERR_UNKNOWN_OPTION: {
+			char *option = va_arg(args, char *);
+			warnx("Unknown option: %s", option);
+		}
+			break;
+		case ERR_OPTION_F_REQUIRES_ARG:
+			warnx("Option -f requires an argument");
+			break;
+		case ERR_UNSUPPORTED_HEADER_TYPE: {
+			int header_type = va_arg(args, int);
+			warnx("Unsupported header type: %d", header_type);
+		}
+			break;
+		case ERR_CANNOT_CREATE_FILE: {
+			char *filename = va_arg(args, char *);
+			warnx("Cannot create file: %s", filename);
+		}
+			break;
+		case ERR_UNEXPECTED_EOF:
+			warnx("Unexpected EOF in archive");
+			handle_error(ERR_NOT_RECOVERABLE);
+			break;
+		case ERR_NOT_RECOVERABLE:
+			warnx("Error is not recoverable: exiting now");
+			break;
+		case ERR_CANNOT_OPEN_ARCHIVE: {
+			char *archive_filename = va_arg(args, char *);
+			warnx("Cannot open archive: %s", archive_filename);
+		}
+			break;
+		case ERR_FILE_NOT_FOUND: {
+			char *filename = va_arg(args, char *);
+			warnx("File %s not found in archive", filename);
+		}
+			break;
+		case ERR_FAILURE_STATUS:
+			warnx("Exiting with failure status due to previous errors");
+			break;
+		case ERR_USAGE: {
+			char *usage = va_arg(args, char *);
+			warnx("Usage: %s -f [archive-filename] OPERATION (-x|-t) OPTION [-v] [file1] [file2] ...", usage);
+		}
+			break;
+		case ERR_NOT_TAR_ARCHIVE: {
+			warnx("This does not look like a tar archive");
+			handle_error(ERR_FAILURE_STATUS);
+			break;
+		}
+		default:
+			break;
+	}
+
 	va_end(args);
 	exit(2);
 }
 
-void print_warning(const char *format, ...) {
-    va_list args;
-    va_start(args, format);
-    vwarnx(format, args);
-    va_end(args);
+void handle_warning(WarningType warning_type, ...) {
+	va_list args;
+	va_start(args, warning_type);
+
+	switch (warning_type) {
+		case WARN_LONE_ZERO_BLOCK: {
+			int block_number = va_arg(args, int);
+			warnx("A lone zero block at %d", block_number);
+			break;
+		}
+		case WARN_NOT_FOUND_IN_ARCHIVE: {
+			char *filename = va_arg(args, char *);
+			warnx("%s: Not found in archive", filename);
+			break;
+		}
+		default:
+			break;
+	}
+
+	va_end(args);
 }
 
 bool string_compare(const char *str1, const char *str2) {
@@ -100,19 +196,19 @@ void process_file_not_found(int argc, int filenamesStart, char **foundFiles, cha
 	bool file_not_found = false;
 	for (int i = filenamesStart; i < argc; ++i) {
 		if (*(foundFiles + i) == NULL) {
-			print_warning("%s: Not found in archive", *(argv + i));
+			handle_warning(WARN_NOT_FOUND_IN_ARCHIVE, *(argv + i));
 			file_not_found = true;
 		}
 	}
 	if (file_not_found) {
-		print_error_and_exit("Exiting with failure status due to previous errors");
+		handle_error(ERR_FAILURE_STATUS);
 	}
 }
 
 void skip_blocks(FILE *archive, int blocks, char *block) {
 	for (int i = 0; i < blocks; ++i) {
 		if (fread(block, BLOCK_SIZE, 1, archive) != 1) {
-			print_error_and_exit("Unexpected EOF in archive\nmytar: Error is not recoverable: exiting now");
+			handle_error(ERR_UNEXPECTED_EOF);
 		}
 	}
 }
@@ -140,11 +236,11 @@ void parse_args(int argc,
 				*archiveFilename = *(argv + i + 1);
 				i += 2;
 			} else {
-				print_error_and_exit("Option -f requires an argument");
+				handle_error(ERR_OPTION_F_REQUIRES_ARG);
 			}
 		} else {
 			if (i == 1) {
-				print_error_and_exit("Unknown option: %s", *(argv + i));
+				handle_error(ERR_UNKNOWN_OPTION, *(argv + i));
 			} else {
 				*filenamesStart = i;
 				break;
@@ -164,14 +260,6 @@ void list_files(FILE *archive,
 	int zero_block_count = 0;
 
 	while (fread(block, BLOCK_SIZE, 1, archive) == 1) {
-		// if (is_zero_block(block)) {
-		// 	++zero_block_count;
-		// 	if (zero_block_count == 2) {
-		// 		break;
-		// 	}
-		// 	continue;
-		// }
-
 		if (is_end_of_archive(block, &zero_block_count)) {
 			break;
 		} else if (zero_block_count == 1) {
@@ -181,7 +269,7 @@ void list_files(FILE *archive,
 		memcpy(&header, block, BLOCK_SIZE);
 
 		if (header.typeflag != REGTYPE && header.typeflag != AREGTYPE) {
-			print_error_and_exit("Unsupported header type: %d", header.typeflag);
+			handle_error(ERR_UNSUPPORTED_HEADER_TYPE, header.typeflag);
 		}
 
 		int fileSize = strtol(header.size, NULL, 8);
@@ -195,13 +283,11 @@ void list_files(FILE *archive,
 			for (int i = filenamesStart; i < argc; ++i) {
 				if (strcmp(*(argv + i), header.name) == 0) {
 					*(foundFiles + i) = header.name;
-					fprintf(stdout, "%s\n", header.name);
-					fflush(stdout);
+					immediate_print("%s\n", header.name);
 				}
 			}
 		} else {
-			fprintf(stdout, "%s\n", header.name);
-			fflush(stdout);
+			immediate_print("%s\n", header.name);
 		}
 
 
@@ -209,7 +295,7 @@ void list_files(FILE *archive,
 	}
 
 	if (zero_block_count == 1) {
-		print_warning("A lone zero block at %ld", ftell(archive) / BLOCK_SIZE);
+		handle_warning(WARN_LONE_ZERO_BLOCK, ftell(archive) / BLOCK_SIZE);
 	}
 
 	process_file_not_found(argc, filenamesStart, foundFiles, argv);
@@ -236,7 +322,7 @@ void extract_files(FILE *archive,
 		memcpy(&header, block, BLOCK_SIZE);
 
 		if (header.typeflag != REGTYPE && header.typeflag != AREGTYPE) {
-			print_error_and_exit("Unsupported header type: %d", header.typeflag);
+			handle_error(ERR_UNSUPPORTED_HEADER_TYPE, header.typeflag);
 		}
 
 		int fileSize = strtol(header.size, NULL, 8);
@@ -261,19 +347,17 @@ void extract_files(FILE *archive,
 		if (extractFile) {
 			FILE *outputFile = fopen(header.name, "wb");
 			if (outputFile == NULL) {
-				print_error_and_exit("Cannot create file %s", header.name);
+				handle_error(ERR_CANNOT_CREATE_FILE, header.name);
 			}
 
 			if (verbose) {
-				fprintf(stdout, "%s\n", header.name);
-				fflush(stdout);
+				immediate_print("%s\n", header.name);
 			}
 
 			for (int i = 0; i < blocks; ++i) {
 				if (fread(block, BLOCK_SIZE, 1, archive) != 1) {
 					fclose(outputFile);
-					print_warning("Unexpected EOF in archive");
-					print_error_and_exit("Error is not recoverable: exiting now");
+					handle_error(ERR_UNEXPECTED_EOF);
 				}
 
 				int bytesToWrite = (i == blocks - 1 && fileSize % BLOCK_SIZE != 0) ? fileSize % BLOCK_SIZE : BLOCK_SIZE;
@@ -287,26 +371,26 @@ void extract_files(FILE *archive,
 	}
 
 	if (zero_block_count == 1) {
-		print_warning("A lone zero block at %ld", ftell(archive) / BLOCK_SIZE);
+		handle_warning(WARN_LONE_ZERO_BLOCK, ftell(archive) / BLOCK_SIZE);
 	}
 
 	if (filenamesStart < argc) {
 		for (int i = filenamesStart; i < argc; ++i) {
 			if (*(foundFiles + i) == NULL) {
-				print_warning("File %s not found in archive", *(argv + i));
+				handle_error(ERR_FILE_NOT_FOUND, *(argv + i));
 				file_not_found = true;
 			}
 		}
 	}
 
 	if (file_not_found) {
-		print_error_and_exit("Exiting with failure status due to previous errors");
+		exit(EXIT_FAILURE);
 	}
 }
 
 int main(int argc, char **argv) {
 	if (argc < 3) {
-		print_error_and_exit("Usage: %s -f -t [archive-filename] [file1] [file2] ...", argv[0]);
+		handle_error(ERR_USAGE, argv[0]);
 	}
 
 	operation op = OP_NONE;
@@ -315,22 +399,21 @@ int main(int argc, char **argv) {
 	int filenamesStart = argc;
 	char *foundFiles[argc];
 
-	// set all foundFiles to NULL
 	memset(foundFiles, 0, argc * sizeof(char *));
 	parse_args(argc, argv, &verbose, &op, &archiveFilename, &filenamesStart);
 	if (op == OP_NONE || archiveFilename == NULL) {
-		print_error_and_exit("Usage: %s -f -t [archive-filename] [file1] [file2] ...", argv[0]);
+		handle_error(ERR_USAGE, argv[0]);
 	}
 
 	FILE *archive = fopen(archiveFilename, "rb");
 
 	if (archive == NULL) {
-		print_error_and_exit("Cannot open archive file %s", archiveFilename);
+		handle_error(ERR_CANNOT_OPEN_ARCHIVE, archiveFilename);
 	}
 
 	if (!is_tar_archive(archive)) {
 		fclose(archive);
-		print_error_and_exit("This does not look like a tar archive\nmytar: Exiting with failure status due to previous errors");
+		handle_error(ERR_NOT_TAR_ARCHIVE);
 	}
 
 	fseek(archive, 0, SEEK_SET); // Reset the file pointer to the beginning
