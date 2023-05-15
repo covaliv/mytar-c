@@ -6,12 +6,12 @@
 #include <err.h>
 #include <stdarg.h>
 
-#define	BLOCK_SIZE    512
+#define    BLOCK_SIZE    512
 
-#define	VERBOSE "-v"
-#define	LIST "-t"
-#define	EXTRACT "-x"
-#define	FILENAME "-f"
+#define    VERBOSE "-v"
+#define    LIST "-t"
+#define    EXTRACT "-x"
+#define    FILENAME "-f"
 
 typedef enum ErrorType {
 	ERR_NONE,
@@ -93,7 +93,7 @@ void immediate_print(const char *format, ...) {
 }
 
 
-void handle_error(ErrorType error_type, ...) {
+void handle_error(FILE *archive, ErrorType error_type, ...) {
 	va_list args;
 	va_start(args, error_type);
 
@@ -118,7 +118,7 @@ void handle_error(ErrorType error_type, ...) {
 			break;
 		case ERR_UNEXPECTED_EOF:
 			warnx("Unexpected EOF in archive");
-			handle_error(ERR_NOT_RECOVERABLE);
+			handle_error(archive, ERR_NOT_RECOVERABLE);
 			break;
 		case ERR_NOT_RECOVERABLE:
 			warnx("Error is not recoverable: exiting now");
@@ -143,7 +143,7 @@ void handle_error(ErrorType error_type, ...) {
 			break;
 		case ERR_NOT_TAR_ARCHIVE: {
 			warnx("This does not look like a tar archive");
-			handle_error(ERR_FAILURE_STATUS);
+			handle_error(NULL, ERR_FAILURE_STATUS);
 			break;
 		}
 		default:
@@ -151,6 +151,10 @@ void handle_error(ErrorType error_type, ...) {
 	}
 
 	va_end(args);
+
+	if (archive != NULL) {
+		fclose(archive);
+	}
 	exit(2);
 }
 
@@ -201,14 +205,14 @@ void process_file_not_found(int argc, int filenamesStart, char **foundFiles, cha
 		}
 	}
 	if (file_not_found) {
-		handle_error(ERR_FAILURE_STATUS);
+		handle_error(NULL, ERR_FAILURE_STATUS);
 	}
 }
 
 void skip_blocks(FILE *archive, int blocks, char *block) {
 	for (int i = 0; i < blocks; ++i) {
 		if (fread(block, BLOCK_SIZE, 1, archive) != 1) {
-			handle_error(ERR_UNEXPECTED_EOF);
+			handle_error(archive, ERR_UNEXPECTED_EOF);
 		}
 	}
 }
@@ -236,11 +240,11 @@ void parse_args(int argc,
 				*archiveFilename = *(argv + i + 1);
 				i += 2;
 			} else {
-				handle_error(ERR_OPTION_F_REQUIRES_ARG);
+				handle_error(NULL, ERR_OPTION_F_REQUIRES_ARG);
 			}
 		} else {
 			if (i == 1) {
-				handle_error(ERR_UNKNOWN_OPTION, *(argv + i));
+				handle_error(NULL, ERR_UNKNOWN_OPTION, *(argv + i));
 			} else {
 				*filenamesStart = i;
 				break;
@@ -269,7 +273,7 @@ void list_files(FILE *archive,
 		memcpy(&header, block, BLOCK_SIZE);
 
 		if (header.typeflag != REGTYPE && header.typeflag != AREGTYPE) {
-			handle_error(ERR_UNSUPPORTED_HEADER_TYPE, header.typeflag);
+			handle_error(archive, ERR_UNSUPPORTED_HEADER_TYPE, header.typeflag);
 		}
 
 		int fileSize = strtol(header.size, NULL, 8);
@@ -322,7 +326,7 @@ void extract_files(FILE *archive,
 		memcpy(&header, block, BLOCK_SIZE);
 
 		if (header.typeflag != REGTYPE && header.typeflag != AREGTYPE) {
-			handle_error(ERR_UNSUPPORTED_HEADER_TYPE, header.typeflag);
+			handle_error(archive, ERR_UNSUPPORTED_HEADER_TYPE, header.typeflag);
 		}
 
 		int fileSize = strtol(header.size, NULL, 8);
@@ -347,7 +351,7 @@ void extract_files(FILE *archive,
 		if (extractFile) {
 			FILE *outputFile = fopen(header.name, "wb");
 			if (outputFile == NULL) {
-				handle_error(ERR_CANNOT_CREATE_FILE, header.name);
+				handle_error(archive, ERR_CANNOT_CREATE_FILE, header.name);
 			}
 
 			if (verbose) {
@@ -357,7 +361,7 @@ void extract_files(FILE *archive,
 			for (int i = 0; i < blocks; ++i) {
 				if (fread(block, BLOCK_SIZE, 1, archive) != 1) {
 					fclose(outputFile);
-					handle_error(ERR_UNEXPECTED_EOF);
+					handle_error(archive, ERR_UNEXPECTED_EOF);
 				}
 
 				int bytesToWrite = (i == blocks - 1 && fileSize % BLOCK_SIZE != 0) ? fileSize % BLOCK_SIZE : BLOCK_SIZE;
@@ -377,7 +381,7 @@ void extract_files(FILE *archive,
 	if (filenamesStart < argc) {
 		for (int i = filenamesStart; i < argc; ++i) {
 			if (*(foundFiles + i) == NULL) {
-				handle_error(ERR_FILE_NOT_FOUND, *(argv + i));
+				handle_error(archive, ERR_FILE_NOT_FOUND, *(argv + i));
 				file_not_found = true;
 			}
 		}
@@ -390,7 +394,7 @@ void extract_files(FILE *archive,
 
 int main(int argc, char **argv) {
 	if (argc < 3) {
-		handle_error(ERR_USAGE, argv[0]);
+		handle_error(NULL, ERR_USAGE, argv[0]);
 	}
 
 	operation op = OP_NONE;
@@ -398,22 +402,24 @@ int main(int argc, char **argv) {
 	char *archiveFilename = NULL;
 	int filenamesStart = argc;
 	char *foundFiles[argc];
+	FILE *archive = NULL;
 
 	memset(foundFiles, 0, argc * sizeof(char *));
 	parse_args(argc, argv, &verbose, &op, &archiveFilename, &filenamesStart);
+
 	if (op == OP_NONE || archiveFilename == NULL) {
-		handle_error(ERR_USAGE, argv[0]);
+		handle_error(NULL, ERR_USAGE, argv[0]);
 	}
 
-	FILE *archive = fopen(archiveFilename, "rb");
+	archive = fopen(archiveFilename, "rb");
 
 	if (archive == NULL) {
-		handle_error(ERR_CANNOT_OPEN_ARCHIVE, archiveFilename);
+		handle_error(archive, ERR_CANNOT_OPEN_ARCHIVE, archiveFilename);
 	}
 
 	if (!is_tar_archive(archive)) {
 		fclose(archive);
-		handle_error(ERR_NOT_TAR_ARCHIVE);
+		handle_error(archive, ERR_NOT_TAR_ARCHIVE);
 	}
 
 	fseek(archive, 0, SEEK_SET); // Reset the file pointer to the beginning
@@ -423,5 +429,8 @@ int main(int argc, char **argv) {
 	} else if (op == OP_EXTRACT) {
 		extract_files(archive, argc, argv, filenamesStart, foundFiles, verbose);
 	}
+
 	fclose(archive);
+
+	return 0;
 }
