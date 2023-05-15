@@ -199,10 +199,6 @@ void handle_warning(WarningType warning_type, ...) {
 	va_end(args);
 }
 
-bool string_compare(const char *str1, const char *str2) {
-	return strcmp(str1, str2) == 0;
-}
-
 bool is_end_of_archive(const char *block, int *zero_block_count) {
 	if (is_zero_block(block)) {
 		++(*zero_block_count);
@@ -246,16 +242,16 @@ void parse_args(int argc,
                 int *filenamesStart) {
 	int i = 1;
 	while (i < argc) {
-		if (string_compare(*(argv + i), LIST)) {
+		if (strcmp(*(argv + i), LIST) == 0) {
 			*op = OP_LIST;
 			++i;
-		} else if (string_compare(*(argv + i), EXTRACT)) {
+		} else if (strcmp(*(argv + i), EXTRACT) == 0) {
 			*op = OP_EXTRACT;
 			++i;
-		} else if (string_compare(*(argv + i), VERBOSE)) {
+		} else if (strcmp(*(argv + i), VERBOSE) == 0) {
 			*verbose = true;
 			++i;
-		} else if (string_compare(*(argv + i), FILENAME)) {
+		} else if (strcmp(*(argv + i), FILENAME) == 0) {
 			if (i + 1 < argc) {
 				*archiveFilename = *(argv + i + 1);
 				i += 2;
