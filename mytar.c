@@ -14,7 +14,6 @@
 #define	REGTYPE '0'
 #define	AREGTYPE '\0'
 
-FILE *archive;
 
 typedef enum ErrorType {
 	ERR_NONE,
@@ -70,6 +69,8 @@ typedef enum operation {
 }
 
 		operation;
+
+FILE *archive;
 
 bool is_tar_archive(FILE *archive) {
 	tar_header header;
@@ -419,14 +420,13 @@ int main(int argc, char **argv) {
 		handle_error(ERR_USAGE, argv[0]);
 	}
 
-	FILE *archive = fopen(archiveFilename, "rb");
+	archive = fopen(archiveFilename, "rb");
 
 	if (archive == NULL) {
 		handle_error(ERR_CANNOT_OPEN_ARCHIVE, archiveFilename);
 	}
 
 	if (!is_tar_archive(archive)) {
-		fclose(archive);
 		handle_error(ERR_NOT_TAR_ARCHIVE);
 	}
 
