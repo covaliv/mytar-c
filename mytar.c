@@ -432,13 +432,16 @@ int main(int argc, char **argv) {
 
 	fseek(archive, 0, SEEK_SET);	// Reset the file pointer to the beginning
 
-	if (op == OP_LIST) {
-		list_files(archive, argc, argv, filenamesStart, foundFiles);
-	} else if (op == OP_EXTRACT) {
-		extract_files(archive, argc, argv, filenamesStart, foundFiles, verbose);
+	switch (op) {
+		case OP_LIST:
+			list_files(archive, argc, argv, filenamesStart, foundFiles);
+			break;
+		case OP_EXTRACT:
+			extract_files(archive, argc, argv, filenamesStart, foundFiles, verbose);
+			break;
+		default:
+			handle_error(ERR_USAGE, argv[0]);
 	}
-
-	fclose(archive);
 
 	return 0;
 }
