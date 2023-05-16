@@ -235,11 +235,11 @@ void skip_blocks(FILE *archive, int blocks, char *block) {
 }
 
 void parse_args(int argc,
-                char **argv,
-                bool *verbose,
-                operation *op,
-                char **archiveFilename,
-                int *filenamesStart) {
+				char **argv,
+				bool *verbose,
+				operation *op,
+				char **archiveFilename,
+				int *filenamesStart) {
 	int i = 1;
 	while (i < argc) {
 		if (strcmp(*(argv + i), LIST) == 0) {
@@ -270,10 +270,10 @@ void parse_args(int argc,
 }
 
 void list_files(FILE *archive,
-                int argc,
-                char **argv,
-                int filenamesStart,
-                char **foundFiles) {
+				int argc,
+				char **argv,
+				int filenamesStart,
+				char **foundFiles) {
 	tar_header header;
 	char block[BLOCK_SIZE];
 	int zero_block_count = 0;
@@ -320,11 +320,11 @@ void list_files(FILE *archive,
 }
 
 void extract_files(FILE *archive,
-                   int argc,
-                   char **argv,
-                   int filenamesStart,
-                   char **foundFiles,
-                   bool verbose) {
+					int argc,
+					char **argv,
+					int filenamesStart,
+					char **foundFiles,
+					bool verbose) {
 	tar_header header;
 	char block[BLOCK_SIZE];
 	int zero_block_count = 0;
@@ -392,14 +392,7 @@ void extract_files(FILE *archive,
 		handle_warning(WARN_LONE_ZERO_BLOCK, ftell(archive) / BLOCK_SIZE);
 	}
 
-	if (filenamesStart < argc) {
-		for (int i = filenamesStart; i < argc; ++i) {
-			if (*(foundFiles + i) == NULL) {
-				handle_error(ERR_FILE_NOT_FOUND, *(argv + i));
-				file_not_found = true;
-			}
-		}
-	}
+	process_file_not_found(argc, filenamesStart, foundFiles, argv);
 
 	if (file_not_found) {
 		exit(EXIT_FAILURE);
@@ -419,7 +412,7 @@ int main(int argc, char **argv) {
 
 	atexit(cleanup);
 
-	memset(foundFiles, 0, argc * sizeof(char *));
+	memset(foundFiles, 0, argc * sizeof (char *));
 	parse_args(argc, argv, &verbose, &op, &archiveFilename, &filenamesStart);
 
 	if (op == OP_NONE || archiveFilename == NULL) {
@@ -437,7 +430,7 @@ int main(int argc, char **argv) {
 		handle_error(ERR_NOT_TAR_ARCHIVE);
 	}
 
-	fseek(archive, 0, SEEK_SET);    // Reset the file pointer to the beginning
+	fseek(archive, 0, SEEK_SET);	// Reset the file pointer to the beginning
 
 	if (op == OP_LIST) {
 		list_files(archive, argc, argv, filenamesStart, foundFiles);
